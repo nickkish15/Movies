@@ -1,0 +1,447 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Fri Jun  5 14:19:15 2020
+
+@author: nickkish
+help from Ken Jee
+"""
+
+import pandas as pd
+import numpy as np
+
+# reading in the data to the primary dataframe variable
+df_imdb = pd.read_csv('IMDb movies.csv')
+
+# analyzing the columns and null value percentages
+df_imdb.columns
+df_imdb.info()
+df_imdb.isnull().any()
+df_imdb.isnull().sum() / df_imdb.shape[0]
+
+######
+
+# I start by creating values for revenue adjusted for inflation, one of the main
+# dependent variables in the model
+
+# turning usa revenue into a float
+df_imdb['usa_gross_income'] = df_imdb['usa_gross_income'].astype(str)
+df_imdb['usar'] = df_imdb.usa_gross_income.apply(lambda x: x.replace('$','').replace(' ',''))
+df_imdb['usar'] = pd.to_numeric(df_imdb['usar'], errors='coerce')
+
+# reading in cpi data and merging the yearly cpi on the year
+df_cpi = pd.read_excel('CPI Data.xlsx')
+df_cpi.columns = ['year', 'cpi']
+df_imdb = pd.merge(df_imdb, df_cpi, on = 'year')
+
+# using the usa revenue and cpi data to make revenue adjusted for inflation
+df_imdb['usa_inf'] = df_imdb['usar'] * (255.657 / df_imdb['cpi'])
+
+######
+
+# I extract the top actor, director, and writer so I can set up analysis on their 
+# significance in the model
+
+# creating a column with only the top-billed actor listed
+df_imdb['actors'] = df_imdb['actors'].astype(str)
+df_imdb['actors'] = df_imdb.apply(lambda x: x['actors'].split(','), axis = 1)
+df_imdb['top_actor'] = df_imdb.apply(lambda x: x['actors'][0], axis = 1)
+
+# creating a column with only the top-billed director listed
+df_imdb['director'] = df_imdb['director'].astype(str)
+df_imdb['director'] = df_imdb.apply(lambda x: x['director'].split(',') if ',' in x['director']
+                                    else [x['director']], axis = 1)
+df_imdb['top_director'] = df_imdb.apply(lambda x: x['director'][0], axis = 1)
+
+# creating a column with only the top-billed writer listed
+df_imdb['writer'] = df_imdb['writer'].astype(str)
+df_imdb['writer'] = df_imdb.apply(lambda x: x['writer'].split(',') if ',' in x['writer']
+                                    else [x['writer']], axis = 1)
+df_imdb['top_writer'] = df_imdb.apply(lambda x: x['writer'][0], axis = 1)
+
+######
+
+# I create columns to easily make dummy variables for genres in the model
+
+# creating a genre list column to more easily extract first, second, and third
+# listed genres into their own columns.
+df_imdb['genre'] = df_imdb['genre'].astype(str)
+df_imdb['genre_list'] = df_imdb.apply(lambda x: x['genre'].split(',') if ',' in x['genre'] 
+                                               else [x['genre']], axis = 1)
+
+# creating columns for the genres
+df_imdb['genre1'] = df_imdb.apply(lambda x: x['genre_list'][0], axis = 1)
+df_imdb['genre2'] = df_imdb.apply(lambda x: x['genre_list'][1] if 
+                                  len(x['genre_list']) > 1 else np.NaN, axis = 1)
+df_imdb['genre3'] = df_imdb.apply(lambda x: x['genre_list'][2] if 
+                                  len(x['genre_list']) > 2 else np.NaN, axis = 1)
+
+######
+
+# I format the description to more easily make a word cloud later
+
+# making description lower case only
+df_imdb['description'] = df_imdb['description'].astype(str)
+df_imdb['desc_lower'] = df_imdb['description'].apply(lambda x: x.lower())
+
+# removing stopwords from description
+import nltk
+from nltk.corpus import stopwords
+nltk.download('stopwords')
+
+stop = stopwords.words('english')
+df_imdb['desc_lower'] = df_imdb['desc_lower'].apply(lambda x: ' '.join([word for word in x.split() 
+                                                            if word not in (stop)]))
+
+######
+
+# I find the total revenue, average score, and total count grouped by actor, 
+# director, and writer, and I merge the new data onto the main dataframe
+
+# group by actor total usa revenue
+df_actor_rev = df_imdb[['top_actor', 'usa_inf']].copy()
+df_actor_rev = df_actor_rev.groupby('top_actor').sum()
+
+# group by actor average usa revenue
+df_actor_avg = df_imdb[['top_actor', 'usa_inf']].copy()
+df_actor_avg = df_actor_avg.groupby('top_actor').mean()
+
+# group by director total usa revenue
+df_director_rev = df_imdb[['top_director', 'usa_inf']].copy()
+df_director_rev = df_director_rev.groupby('top_director').sum()
+
+# group by director average usa revenue
+df_director_avg = df_imdb[['top_director', 'usa_inf']].copy()
+df_director_avg = df_director_avg.groupby('top_director').mean()
+
+# group by writer total usa revenue
+df_writer_rev = df_imdb[['top_writer', 'usa_inf']].copy()
+df_writer_rev = df_writer_rev.groupby('top_writer').sum()
+
+# group by writer average usa revenue
+df_writer_avg = df_imdb[['top_writer', 'usa_inf']].copy()
+df_writer_avg = df_writer_avg.groupby('top_writer').mean()
+
+# group by average actor score
+df_actor_score = df_imdb[['top_actor', 'avg_vote']]
+df_actor_score = df_actor_score.groupby('top_actor').mean()
+
+# group by average director score
+df_director_score = df_imdb[['top_director', 'avg_vote']]
+df_director_score = df_director_score.groupby('top_director').mean()
+
+# group by average writer score
+df_writer_score = df_imdb[['top_writer', 'avg_vote']]
+df_writer_score = df_writer_score.groupby('top_writer').mean()
+
+# group by actor count
+df_actor_count = df_imdb[['top_actor', 'title']]
+df_actor_count = df_actor_count.groupby('top_actor').count()
+
+# group by director count
+df_director_count = df_imdb[['top_director', 'title']]
+df_director_count = df_director_count.groupby('top_director').count()
+
+# group by writer count
+df_writer_count = df_imdb[['top_writer', 'title']]
+df_writer_count = df_writer_count.groupby('top_writer').count()
+
+# connect actor dataframes 
+df_imdb = pd.merge(df_imdb, df_actor_score, on = 'top_actor', how = 'left')
+df_imdb = pd.merge(df_imdb, df_actor_rev, on = 'top_actor', how = 'left')
+df_imdb = pd.merge(df_imdb, df_actor_avg, on = 'top_actor', how = 'left')
+df_imdb = pd.merge(df_imdb, df_actor_count, on = 'top_actor', how = 'left')
+df_imdb = df_imdb.rename(columns={'avg_vote_y':'a_avg_vote', 
+                                  'usa_inf_y':'a_usa_inf',
+                                  'usa_inf':'a_avg_inf','title_y':'a_count'})
+
+# I had to fix the column names each time, otherwise two columns would have the same name
+df_imdb = df_imdb.rename(columns={'avg_vote_x':'avg_vote',
+                                  'usa_inf_x':'usa_inf','title_x':'title'})
+
+# connect director dataframes
+df_imdb = pd.merge(df_imdb, df_director_score, on = 'top_director', how = 'left')
+df_imdb = pd.merge(df_imdb, df_director_rev, on = 'top_director', how = 'left')
+df_imdb = pd.merge(df_imdb, df_director_avg, on = 'top_director', how = 'left')
+df_imdb = pd.merge(df_imdb, df_director_count, on = 'top_director', how = 'left')
+df_imdb = df_imdb.rename(columns={'avg_vote_y':'d_avg_vote', 
+                                  'usa_inf_y':'d_usa_inf',
+                                  'usa_inf':'d_avg_inf','title_y':'d_count'})
+
+# fix names
+df_imdb = df_imdb.rename(columns={'avg_vote_x':'avg_vote',
+                                  'usa_inf_x':'usa_inf','title_x':'title'})
+
+# connect writer dataframes
+df_imdb = pd.merge(df_imdb, df_writer_score, on = 'top_writer', how = 'left')
+df_imdb = pd.merge(df_imdb, df_writer_rev, on = 'top_writer', how = 'left')
+df_imdb = pd.merge(df_imdb, df_writer_avg, on = 'top_writer', how = 'left')
+df_imdb = pd.merge(df_imdb, df_writer_count, on = 'top_writer', how = 'left')
+df_imdb = df_imdb.rename(columns={'avg_vote_y':'w_avg_vote', 
+                                  'usa_inf_y':'w_usa_inf',
+                                  'usa_inf':'w_avg_inf','title_y':'w_count'})
+
+# fix names
+df_imdb = df_imdb.rename(columns={'avg_vote_x':'avg_vote',
+                                  'usa_inf_x':'usa_inf','title_x':'title'})
+
+######
+
+# I create a new dataframe with no null values for revenue adjusted for inflation,
+# and I add budget adjusted for inflation and profit
+
+# creating the dataframe with no nulls for revenue adjusted for inflation
+df_usar = df_imdb.loc[pd.notna(df_imdb.usa_inf), :].copy()
+
+# turning budget into a float
+df_usar['budget'] = df_usar['budget'].astype(str)
+df_usar['budget'] = df_usar.budget.apply(lambda x: x.replace('$','').replace(' ',''))
+df_usar['budget'] = pd.to_numeric(df_usar['budget'], errors='coerce')
+
+# adjusting budget for inflation
+df_usar['bud_inf'] = df_usar['budget'] * (255.657 / df_usar['cpi'])
+
+# making a profit column
+df_usar['profit'] = df_usar['usa_inf'] - df_usar['bud_inf']
+
+# creating another dataframe with no null values for profit
+df_profit = df_usar.loc[pd.notna(df_usar.profit), :].copy()
+
+######
+
+# I create dummy variables for genres for both new dataframes, and I prepare the
+# model dataframes
+
+# creating the genre dummy variables
+genre1_dums = pd.get_dummies(df_profit['genre1'])
+genre2_dums = pd.get_dummies(df_profit['genre2'])
+genre2_dums.columns = genre2_dums.columns.str.replace(' ','')
+genre3_dums = pd.get_dummies(df_profit['genre3'])
+genre3_dums.columns = genre3_dums.columns.str.replace(' ','')
+genre_dumlist2 = [genre1_dums,genre2_dums,genre3_dums]
+genre_concat2 = pd.concat(genre_dumlist2).groupby(level=0).any().astype(int)
+
+# joining dummies to profit dataframe and creating a model dataframe
+df_genre_dummies2 = pd.concat([df_profit, genre_concat2], axis = 1)
+df_model = pd.concat([df_profit, genre_concat2], axis = 1)
+
+# creating another dataframe where actor, director, or writer count is greater than 3
+df_filtered = df_model[(df_model['a_count'] > 2) & (df_model['d_count'] > 2)
+                       & (df_model['w_count'] > 2)]
+
+######
+
+# I create the final model dataframes. For the regressions on actor, director,
+# and writer impact, I use the filtered dataframe. For the regressions on genre,
+# I use the non-filtered dataframe
+
+# filtering out the top and bottom 5% earning movies for the actor, director,
+# writer regression on revenue
+df_model_rev = df_filtered[(df_filtered['usa_inf'] < df_filtered['usa_inf'].quantile(0.95)) 
+                    & (df_filtered['usa_inf'] > df_filtered['usa_inf'].quantile(0.05))]
+
+# filtering out the top and bottom 5% scored movies for the actor, director,
+# writer regression on score
+df_model_score = df_filtered[(df_filtered['avg_vote'] < df_filtered['avg_vote'].quantile(0.95)) 
+                    & (df_filtered['avg_vote'] > df_filtered['avg_vote'].quantile(0.05))]
+
+# builiding the revenue regression model dataframe
+df_model_rev1 = df_model_rev[['duration','avg_vote','votes','usa_inf',
+                      'a_avg_vote','a_usa_inf','a_avg_inf','a_count',
+                      'd_avg_vote','d_usa_inf','d_avg_inf','d_count',
+                      'w_avg_vote','w_usa_inf','w_avg_inf','w_count']].copy()
+
+# adding a constant for the multiple linear regression
+df_model_rev1['constant'] = 1
+
+# log-transforming the total revenues for movies, actors, directors, and writers
+# due to the power-law distributions
+df_model_rev1['log_rev'] = np.log(df_model_rev1['usa_inf'])
+df_model_rev1['log_a_rev'] = np.log(df_model_rev1['a_usa_inf'])
+df_model_rev1['log_d_rev'] = np.log(df_model_rev1['d_usa_inf'])
+df_model_rev1['log_w_rev'] = np.log(df_model_rev1['w_usa_inf'])
+
+df_model_rev1['log_a_avg'] = np.log(df_model_rev1['a_avg_inf'])
+df_model_rev1['log_d_avg'] = np.log(df_model_rev1['d_avg_inf'])
+df_model_rev1['log_w_avg'] = np.log(df_model_rev1['w_avg_inf'])
+
+# building the score regression model dataframe
+df_model_score1 = df_model_score[['duration','avg_vote','votes','usa_inf',
+                      'a_avg_vote','a_usa_inf','a_avg_inf','a_count',
+                      'd_avg_vote','d_usa_inf','d_avg_inf','d_count',
+                      'w_avg_vote','w_usa_inf','w_avg_inf','w_count']].copy()
+
+# adding a constant for the multiple linear regression
+df_model_score1['constant'] = 1
+
+# filtering out the top and bottom 5% earning movies for genre regression on revenue
+df_genre_rev = df_model[(df_model['usa_inf'] < df_model['usa_inf'].quantile(0.95)) 
+                    & (df_model['usa_inf'] > df_model['usa_inf'].quantile(0.05))]
+
+# filtering out the top and bottom 5% earning movies for genre regression on score
+df_genre_score = df_model[(df_model['avg_vote'] < df_model['avg_vote'].quantile(0.95)) 
+                    & (df_model['avg_vote'] > df_model['avg_vote'].quantile(0.05))]
+
+# building the genre revenue regression model dataframe
+df_genre_rev1 = df_genre_rev[['usa_inf','Action','Adventure','Animation','Biography','Comedy',
+                      'Crime','Drama','Family','Fantasy','Film-Noir',
+                      'History','Horror','Music','Musical','Mystery',
+                      'Romance','Sci-Fi','Sport','Thriller','War','Western']].copy()
+
+# adding a constant for the multiple linear regression
+df_genre_rev1['constant'] = 1
+
+# log-transforming the dependent variable due to its power-law distribution
+df_genre_rev1['log_rev'] = np.log(df_genre_rev1['usa_inf'])
+
+# building the genre score regression model dataframe
+df_genre_score1 = df_genre_score[['avg_vote','Action','Adventure','Animation','Biography','Comedy',
+                      'Crime','Drama','Family','Fantasy','Film-Noir',
+                      'History','Horror','Music','Musical','Mystery',
+                      'Romance','Sci-Fi','Sport','Thriller','War','Western']].copy()
+
+# adding a constant for the multiple linear regression
+df_genre_score1['constant'] = 1
+
+######
+
+# I check to make sure my model's variables aren't too inter-correlated
+
+# checking inter-correlation, credit to Ken Jee
+numeric = df_model_rev1._get_numeric_data()
+
+import seaborn as sns
+
+corrdata = numeric
+
+corr = corrdata.corr()
+ax = sns.heatmap(
+    corr, 
+    vmin=-1, vmax=1, center=0,
+    cmap=sns.diverging_palette(20, 220, n=200),
+    square=True
+)
+ax.set_xticklabels(
+    ax.get_xticklabels(),
+    rotation=45,
+    horizontalalignment='right'
+)
+
+######
+
+# I use multiple linear regression to analyze my independent variables
+
+# multiple linear regression on actor, directorm and writer impact
+from sklearn.model_selection import train_test_split
+import statsmodels.api as sm
+import matplotlib.pyplot as plt
+
+X1 = df_model_rev1[['constant','log_a_rev','log_d_rev','log_w_rev']]
+y1 = df_model_rev1.log_rev.values
+
+X_train1, X_test1, y_train1, y_test1 = train_test_split(X1, y1, test_size=0.3, random_state=0)
+
+reg_sm1 = sm.OLS(y_train1, X_train1).fit()
+reg_sm1.summary()
+
+# creating the partial regression plots
+fig = plt.figure(figsize=(12,8))
+fig = sm.graphics.plot_partregress_grid(reg_sm1, fig=fig)
+
+# creating the residual distribution plots
+plt.hist(reg_sm1.resid_pearson)
+plt.xlabel('Residual')
+plt.ylabel('# of Data Points')
+plt.title('Residual Distribution Plot')
+
+# multiple linear regression on genre impact
+X2 = df_genre_rev1[['constant','Action','Adventure','Animation','Biography','Comedy',
+                      'Crime','Drama','Family','Fantasy','Film-Noir',
+                      'History','Horror','Music','Musical','Mystery',
+                      'Romance','Sci-Fi','Sport','Thriller','War','Western']]
+y2 = df_genre_rev1.log_rev.values
+
+X_train2, X_test2, y_train2, y_test2 = train_test_split(X2, y2, test_size=0.3, random_state=0)
+
+reg_sm2 = sm.OLS(y_train2, X_train2).fit()
+reg_sm2.summary()
+
+# creating the partial regression plots
+fig2 = plt.figure(figsize=(12,8))
+fig2 = sm.graphics.plot_partregress_grid(reg_sm1, fig=fig)
+
+# creating the residual distribution plots
+plt.hist(reg_sm2.resid_pearson)
+plt.xlabel('Residual')
+plt.ylabel('# of Data Points')
+plt.title('Residual Distribution Plot')
+
+######
+
+# I create word clouds from the main dataframe and dataframes at the top 5% of
+# revenue and score
+
+# top percentile dataframes
+df_top5_rev = df_usar[df_usar['usa_inf'] > df_usar['usa_inf'].quantile(0.95)]
+df_top5_score = df_usar[df_usar['avg_vote'] > df_usar['avg_vote'].quantile(0.95)]
+
+# word cloud, credit to Ken Jee
+from nltk.tokenize import word_tokenize
+nltk.download('punkt')
+from wordcloud import WordCloud
+
+text = " ".join([ele for ele in df_top5_rev['desc_lower']])
+
+def punctuation_stop(text):
+    """remove punctuation and stop words"""
+    filtered = []
+    stop_words = set(stopwords.words('english'))
+    word_tokens = word_tokenize(text)
+    for w in word_tokens:
+        if w not in stop_words and w.isalpha():
+            filtered.append(w.lower())
+    return filtered
+
+filtered_list = punctuation_stop(text)
+
+all_text = " ".join([ele for ele in filtered_list])
+
+wc = WordCloud(background_color="white", max_words=2000, max_font_size=90, random_state=1)
+wc.generate(all_text)
+wc.to_file('wordcloud.png')
+
+# second word cloud
+text2 = " ".join([ele for ele in df_top5_score['desc_lower']])
+
+filtered_list2 = punctuation_stop(text2)
+
+all_text2 = " ".join([ele for ele in filtered_list2])
+
+wc2 = WordCloud(background_color="white", max_words=2000, max_font_size=90, random_state=2)
+wc2.generate(all_text2)
+wc2.to_file('wordcloud_top5_score.png')
+
+# third word cloud
+text3 = " ".join([ele for ele in df_imdb['desc_lower']])
+
+filtered_list3 = punctuation_stop(text3)
+
+all_text3 = " ".join([ele for ele in filtered_list3])
+
+wc3 = WordCloud(background_color="white", max_words=2000, max_font_size=90, random_state=1)
+wc3.generate(all_text3)
+wc3.to_file('wordcloud_imdb.png')
+
+######
+
+# I export the dataframes as csv's to analyze them in Tableau and create data visualizations
+
+df_usar.to_csv('df_usar.csv')
+df_imdb.to_csv('df_imdb.csv')
+df_profit.to_csv('df_profit.csv')
+
+
+
+
+
+
